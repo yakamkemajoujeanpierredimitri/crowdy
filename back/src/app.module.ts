@@ -1,0 +1,26 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { DbModule } from './db/db.module';
+import { CacheModule } from './cache/cache.module';
+import { VenuesModule } from './venues/venues.module';
+import { ReportsModule } from './reports/reports.module';
+import { LiveModule } from './live/live.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    DbModule,
+    CacheModule,
+    VenuesModule,
+    ReportsModule,
+    LiveModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
