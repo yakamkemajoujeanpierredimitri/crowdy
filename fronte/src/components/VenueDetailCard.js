@@ -8,7 +8,9 @@ import {
   Globe, 
   ExternalLink, 
   Navigation,
-  Lock
+  Lock,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { getCategoryLabel, reportOptions } from '../utils/helpers';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,9 +29,19 @@ export default function VenueDetailCard({
   const { isPremiumUser, isBusinessPlus, isFreeUser } = useAuth();
   const [highlights, setHighlights] = useState([]);
   const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(null);
 
   useEffect(() => {
-    if (!selectedVenue || !isLiveBackend) return;
+    if (!selectedVenue) return;
+    
+    if (!isLiveBackend) {
+      setHighlights([
+        { id: 'mock-1', media_url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=300&q=80' },
+        { id: 'mock-2', media_url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80' },
+        { id: 'mock-3', media_url: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=300&q=80' }
+      ]);
+      return;
+    }
     
     let isMounted = true;
     const fetchHighlights = async () => {
@@ -58,11 +70,11 @@ export default function VenueDetailCard({
   if (!selectedVenue) return null;
 
   return (
-    <div className="absolute top-6 right-6 z-10 w-96 max-w-[calc(100vw-3rem)]">
-      <div className="bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl p-5 shadow-[0_15px_30px_rgba(0,0,0,0.5)] relative">
+    <div className="absolute top-6 right-6 z-10 w-96 max-w-[calc(100vw-3rem)] max-h-[calc(100vh-8rem)] overflow-y-auto scrollbar-none rounded-2xl shadow-[0_15px_30px_rgba(0,0,0,0.5)]">
+      <div className="bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl p-5 relative min-h-full">
         <button 
           onClick={() => setSelectedVenueId(null)}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 bg-slate-900/50 p-1.5 rounded-full border border-slate-800 z-10 animate-transition"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 bg-slate-900/50 p-1.5 rounded-full border border-slate-800 z-10 transition"
         >
           <X className="w-4 h-4" />
         </button>
@@ -78,6 +90,53 @@ export default function VenueDetailCard({
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
           </div>
         )}
+
+        {/* Highlights Section */}
+        <div className="mb-4 space-y-1.5">
+          <div className="flex justify-between items-center text-[8px] font-mono text-slate-500 mb-2">
+            <span>VENUE HIGHLIGHTS</span>
+            {!isPremiumUser && (
+              <span className="text-[7.5px] uppercase font-bold text-amber-500 flex items-center gap-1">
+                <Lock className="w-2.5 h-2.5" />
+                Premium to unlock all
+              </span>
+            )}
+          </div>
+          
+          {highlightsLoading ? (
+            <div className="text-[10px] text-slate-500 font-mono text-center py-2">Loading highlights...</div>
+          ) : highlights.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2">
+              {highlights.map((h, i) => {
+                const isLocked = !isPremiumUser && !isBusinessPlus && i >= 1; // Free users see only 1 highlight
+                
+                return (
+                  <div 
+                    key={h.id} 
+                    onClick={() => !isLocked && setSelectedHighlightIndex(i)}
+                    className={`relative aspect-square rounded-md overflow-hidden border border-slate-800 ${!isLocked ? 'cursor-pointer' : ''}`}
+                  >
+                    <img 
+                      src={h.media_url} 
+                      alt="Highlight" 
+                      className={`w-full h-full object-cover transition-transform hover:scale-110 ${isLocked ? 'blur-sm brightness-50' : ''}`} 
+                    />
+                    {isLocked && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 p-1 text-center">
+                        <Lock className="w-4 h-4 text-amber-500 mb-1" />
+                        <span className="text-[7px] font-bold text-white uppercase">Upgrade to View</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-[10px] text-slate-500 font-mono text-center py-4 bg-slate-900/50 rounded-lg border border-slate-800 border-dashed">
+              No highlights yet.
+            </div>
+          )}
+        </div>
 
         {/* Header Details */}
         <div className="space-y-1.5 pr-6">
@@ -215,51 +274,58 @@ export default function VenueDetailCard({
           </div>
         </div>
 
-        {/* Highlights Section */}
-        {isLiveBackend && (
-          <div className="mt-4 pt-3 border-t border-slate-850 space-y-1.5">
-            <div className="flex justify-between items-center text-[8px] font-mono text-slate-500 mb-2">
-              <span>VENUE HIGHLIGHTS</span>
-              {!isPremiumUser && (
-                <span className="text-[7.5px] uppercase font-bold text-amber-500 flex items-center gap-1">
-                  <Lock className="w-2.5 h-2.5" />
-                  Premium to unlock all
-                </span>
-              )}
-            </div>
-            
-            {highlightsLoading ? (
-              <div className="text-[10px] text-slate-500 font-mono text-center py-2">Loading highlights...</div>
-            ) : highlights.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
-                {highlights.map((h, i) => {
-                  const isLocked = !isPremiumUser && !isBusinessPlus && i >= 1; // Free users see only 1 highlight
-                  
-                  return (
-                    <div key={h.id} className="relative aspect-square rounded-md overflow-hidden border border-slate-800">
-                      <img 
-                        src={h.media_url} 
-                        alt="Highlight" 
-                        className={`w-full h-full object-cover transition-transform hover:scale-110 ${isLocked ? 'blur-sm brightness-50' : ''}`} 
-                      />
-                      {isLocked && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 p-1 text-center">
-                          <Lock className="w-4 h-4 text-amber-500 mb-1" />
-                          <span className="text-[7px] font-bold text-white uppercase">Upgrade to View</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-[10px] text-slate-500 font-mono text-center py-4 bg-slate-900/50 rounded-lg border border-slate-800 border-dashed">
-                No highlights yet.
-              </div>
-            )}
-          </div>
-        )}
+
       </div>
+
+      {/* Modal for Highlights */}
+      {selectedHighlightIndex !== null && highlights.length > 0 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="relative bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-2xl max-w-2xl w-full mx-4">
+            <button 
+              onClick={() => setSelectedHighlightIndex(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-900 p-2 rounded-full z-10 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center justify-between gap-4">
+              <button 
+                onClick={() => setSelectedHighlightIndex(prev => prev > 0 ? prev - 1 : prev)}
+                disabled={selectedHighlightIndex === 0}
+                className="p-2 text-slate-400 hover:text-white disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="w-8 h-8" />
+              </button>
+              
+              <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black flex items-center justify-center">
+                <img 
+                  src={highlights[selectedHighlightIndex].media_url} 
+                  alt="Highlight full" 
+                  className="max-w-full max-h-[70vh] object-contain"
+                />
+              </div>
+
+              <button 
+                onClick={() => setSelectedHighlightIndex(prev => {
+                  // Only allow scrolling to unlocked images
+                  const nextIndex = prev + 1;
+                  const isNextLocked = !isPremiumUser && !isBusinessPlus && nextIndex >= 1;
+                  if (nextIndex < highlights.length && !isNextLocked) {
+                    return nextIndex;
+                  }
+                  return prev;
+                })}
+                disabled={selectedHighlightIndex === highlights.length - 1 || (!isPremiumUser && !isBusinessPlus && selectedHighlightIndex + 1 >= 1)}
+                className="p-2 text-slate-400 hover:text-white disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="w-8 h-8" />
+              </button>
+            </div>
+            <div className="text-center mt-4 text-slate-400 font-mono text-xs">
+              {selectedHighlightIndex + 1} / {!isPremiumUser && !isBusinessPlus ? 1 : highlights.length}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
