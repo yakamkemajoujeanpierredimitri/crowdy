@@ -7,6 +7,8 @@ import { CacheModule } from './cache/cache.module';
 import { VenuesModule } from './venues/venues.module';
 import { ReportsModule } from './reports/reports.module';
 import { LiveModule } from './live/live.module';
+import { ClaimsModule } from './claims/claims.module';
+import { HighlightsModule } from './highlights/highlights.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { LiveModule } from './live/live.module';
     VenuesModule,
     ReportsModule,
     LiveModule,
+    ClaimsModule,
+    HighlightsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

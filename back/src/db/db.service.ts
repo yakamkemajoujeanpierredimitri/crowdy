@@ -84,13 +84,62 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     // 6. Create Users Table
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        auth_id          TEXT UNIQUE NOT NULL,
-        reputation_score DOUBLE PRECISION NOT NULL DEFAULT 0.5,
-        report_count     INT NOT NULL DEFAULT 0,
-        created_at       TIMESTAMPTZ DEFAULT now()
+        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        auth_id             TEXT UNIQUE NOT NULL,
+        reputation_score    DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+        report_count        INT NOT NULL DEFAULT 0,
+        role                TEXT NOT NULL DEFAULT 'user',
+        tier                TEXT NOT NULL DEFAULT 'free',
+        stripe_customer_id  TEXT,
+        subscription_status TEXT,
+        created_at          TIMESTAMPTZ DEFAULT now()
       );
     `);
+
+    // Alter Users Table in case it already exists
+    await this.pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT;
+    `);
+
+    // 6a. Create Venue Claims Table
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS venue_claims (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+        venue_id    UUID REFERENCES venues(id) ON DELETE CASCADE,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        documents   TEXT,
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        updated_at  TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (user_id, venue_id)
+      );
+    `);
+
+    // 6b. Create Venue Sponsorships Table
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS venue_sponsorships (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        venue_id     UUID REFERENCES venues(id) ON DELETE CASCADE,
+        bid_amount   INT NOT NULL DEFAULT 0,
+        active_until TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ DEFAULT now()
+      );
+    `);
+
+    // 6c. Create Highlights Table
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS highlights (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        venue_id    UUID REFERENCES venues(id) ON DELETE CASCADE,
+        media_url   TEXT NOT NULL,
+        media_type  TEXT NOT NULL DEFAULT 'image',
+        uploaded_at TIMESTAMPTZ DEFAULT now()
+      );
+    `);
+    await this.pool.query('CREATE INDEX IF NOT EXISTS idx_highlights_venue_time ON highlights (venue_id, uploaded_at DESC);');
 
     // 7. Create Historical Patterns Table
     await this.pool.query(`

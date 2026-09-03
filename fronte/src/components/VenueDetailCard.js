@@ -7,9 +7,12 @@ import {
   MapPin, 
   Globe, 
   ExternalLink, 
-  Navigation 
+  Navigation,
+  Lock
 } from 'lucide-react';
 import { getCategoryLabel, reportOptions } from '../utils/helpers';
+import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect } from 'react';
 
 export default function VenueDetailCard({
   selectedVenue,
@@ -21,6 +24,37 @@ export default function VenueDetailCard({
   setSimTime,
   showToast
 }) {
+  const { isPremiumUser, isBusinessPlus, isFreeUser } = useAuth();
+  const [highlights, setHighlights] = useState([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedVenue || !isLiveBackend) return;
+    
+    let isMounted = true;
+    const fetchHighlights = async () => {
+      setHighlightsLoading(true);
+      try {
+        const res = await fetch(`http://localhost:3001/highlights/venue/${selectedVenue.id}`);
+        if (!res.ok) throw new Error('Failed to fetch highlights');
+        const data = await res.json();
+        if (isMounted) {
+          setHighlights(data);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (isMounted) setHighlightsLoading(false);
+      }
+    };
+    
+    fetchHighlights();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedVenue?.id, isLiveBackend]);
+
   if (!selectedVenue) return null;
 
   return (
@@ -180,6 +214,51 @@ export default function VenueDetailCard({
             })}
           </div>
         </div>
+
+        {/* Highlights Section */}
+        {isLiveBackend && (
+          <div className="mt-4 pt-3 border-t border-slate-850 space-y-1.5">
+            <div className="flex justify-between items-center text-[8px] font-mono text-slate-500 mb-2">
+              <span>VENUE HIGHLIGHTS</span>
+              {!isPremiumUser && (
+                <span className="text-[7.5px] uppercase font-bold text-amber-500 flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  Premium to unlock all
+                </span>
+              )}
+            </div>
+            
+            {highlightsLoading ? (
+              <div className="text-[10px] text-slate-500 font-mono text-center py-2">Loading highlights...</div>
+            ) : highlights.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {highlights.map((h, i) => {
+                  const isLocked = !isPremiumUser && !isBusinessPlus && i >= 1; // Free users see only 1 highlight
+                  
+                  return (
+                    <div key={h.id} className="relative aspect-square rounded-md overflow-hidden border border-slate-800">
+                      <img 
+                        src={h.media_url} 
+                        alt="Highlight" 
+                        className={`w-full h-full object-cover transition-transform hover:scale-110 ${isLocked ? 'blur-sm brightness-50' : ''}`} 
+                      />
+                      {isLocked && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 p-1 text-center">
+                          <Lock className="w-4 h-4 text-amber-500 mb-1" />
+                          <span className="text-[7px] font-bold text-white uppercase">Upgrade to View</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-500 font-mono text-center py-4 bg-slate-900/50 rounded-lg border border-slate-800 border-dashed">
+                No highlights yet.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
