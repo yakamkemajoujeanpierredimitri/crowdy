@@ -15,8 +15,14 @@ export class VenuesController {
   }
 
   @Get('search')
-  async search(@Query('q') q: string) {
-    return this.venuesService.search(q || '');
+  async search(
+    @Query('q') q: string,
+    @Query('lat') lat?: string,
+    @Query('lon') lon?: string
+  ) {
+    const parsedLat = lat ? parseFloat(lat) : undefined;
+    const parsedLon = lon ? parseFloat(lon) : undefined;
+    return this.venuesService.search(q || '', parsedLat, parsedLon);
   }
 
   @Get(':id/crowd')

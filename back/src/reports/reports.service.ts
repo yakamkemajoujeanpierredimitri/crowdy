@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { DbService } from '../db/db.service';
 import { CacheService } from '../cache/cache.service';
 import { LiveGateway } from '../live/live.gateway';
+import { BestTimeService } from '../integration/besttime.service';
 
 @Injectable()
 export class ReportsService {
@@ -10,7 +11,8 @@ export class ReportsService {
   constructor(
     private dbService: DbService,
     private cacheService: CacheService,
-    private liveGateway: LiveGateway
+    private liveGateway: LiveGateway,
+    private bestTimeService: BestTimeService
   ) {}
 
   async submitReport(venueId: string, score: number, userId: string, sourceType = 'manual') {
@@ -45,8 +47,8 @@ export class ReportsService {
       throw new BadRequestException('Rate limit exceeded: Max 3 submissions per venue per hour.');
     }
 
-    // 4. Fetch Venue Details to get decay constant (lambda)
-    const venueQuery = 'SELECT category, lambda FROM venues WHERE id = $1;';
+    // 4. Fetch Venue Details to get decay constant (lambda) + name/address for BestTime
+    const venueQuery = 'SELECT name, address, category, lambda FROM venues WHERE id = $1;';
     const venueRes = await this.dbService.query(venueQuery, [venueId]);
     if (venueRes.rows.length === 0) {
       throw new BadRequestException('Invalid venue ID.');
@@ -87,7 +89,7 @@ export class ReportsService {
     );
 
     // 7. Core Recalculation Pipeline
-    await this.recalculateScore(venueId, venue.category, venue.lambda);
+    await this.recalculateScore(venueId, venue.name, venue.address, venue.category, venue.lambda);
 
     return { status: 'success', message: 'Report processed successfully.' };
   }
@@ -111,20 +113,57 @@ export class ReportsService {
     return 'accept';
   }
 
-  private async recalculateScore(venueId: string, category: string, lambda: number) {
+  private async recalculateScore(venueId: string, venueName: string, venueAddress: string, category: string, lambda: number) {
     const now = new Date();
     // Day of week: 0=Mon to 6=Sun
     const day = now.getDay();
     const dow = day === 0 ? 6 : day - 1;
     const hour = now.getHours();
 
-    // 1. Fetch current Google Historical Baseline
-    const baselineQuery = `
-      SELECT avg_score FROM historical_patterns 
-      WHERE venue_id = $1 AND day_of_week = $2 AND hour = $3;
-    `;
-    const baselineRes = await this.dbService.query(baselineQuery, [venueId, dow, hour]);
-    const googleScore = baselineRes.rows.length > 0 ? baselineRes.rows[0].avg_score : 50;
+    // 1. Fetch baseline score — try BestTime live data first, fall back to historical_patterns
+    let baselineScore: number = 50;
+    let baselineSource = 'Default';
+
+    // 1a. Try BestTime live busyness (cached for 15min via Redis)
+    const cachedBtScore = await this.cacheService.get(`bt_live:${venueId}`);
+    if (cachedBtScore) {
+      baselineScore = parseFloat(cachedBtScore);
+      baselineSource = 'BestTime (cached)';
+    } else {
+      // Resolve BestTime venue ID (cached for 24h)
+      let bestTimeVenueId = await this.cacheService.get(`bt_id:${venueId}`);
+      if (!bestTimeVenueId) {
+        bestTimeVenueId = await this.bestTimeService.searchVenueId(venueName, venueAddress);
+        if (bestTimeVenueId) {
+          await this.cacheService.set(`bt_id:${venueId}`, bestTimeVenueId, 86400);
+        }
+      }
+
+      if (bestTimeVenueId) {
+        const liveBusyness = await this.bestTimeService.getLiveBusyness(bestTimeVenueId);
+        if (liveBusyness !== null) {
+          baselineScore = liveBusyness;
+          baselineSource = 'BestTime';
+          // Cache the live score for 15 minutes to avoid hitting the API on every report
+          await this.cacheService.set(`bt_live:${venueId}`, String(liveBusyness), 900);
+        }
+      }
+    }
+
+    // 1b. If BestTime unavailable, fall back to local historical patterns
+    if (baselineSource === 'Default') {
+      const baselineQuery = `
+        SELECT avg_score FROM historical_patterns 
+        WHERE venue_id = $1 AND day_of_week = $2 AND hour = $3;
+      `;
+      const baselineRes = await this.dbService.query(baselineQuery, [venueId, dow, hour]);
+      if (baselineRes.rows.length > 0) {
+        baselineScore = baselineRes.rows[0].avg_score;
+        baselineSource = 'Historical';
+      }
+    }
+
+    this.logger.log(`Baseline for venue ${venueId}: ${baselineScore} (source: ${baselineSource})`);
 
     // 2. Fetch last 10 user reports inside decay window (4 hours)
     const activeReportsQuery = `
@@ -163,15 +202,15 @@ export class ReportsService {
     const w1 = 1 - w2;
 
     let finalScore: number;
-    let source = 'Google Times';
+    let source = baselineSource;
 
     if (activeDecayedReports.length > 0) {
       const userScoreAvg = activeDecayedReports.reduce((a, b) => a + b, 0) / activeDecayedReports.length;
-      const raw = (w1 * googleScore) + (w2 * userScoreAvg);
+      const raw = (w1 * baselineScore) + (w2 * userScoreAvg);
       finalScore = Math.round(Math.min(100, Math.max(0, raw)));
       source = `Verified Live`;
     } else {
-      finalScore = googleScore;
+      finalScore = baselineScore;
     }
 
     // 4. Classify Score (Label & Color)

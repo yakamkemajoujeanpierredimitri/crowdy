@@ -7,7 +7,7 @@ async function bootstrap() {
   
   // Enable CORS for frontend API and WebSocket calls
   app.enableCors({
-    origin: '*',
+    origin: true,
     credentials: true,
   });
 
@@ -18,7 +18,7 @@ async function bootstrap() {
   }));
 
   const port = process.env.PORT ?? 5000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   console.log(`CrowdSense NestJS Backend running on: http://localhost:${port}`);
 }
 bootstrap();

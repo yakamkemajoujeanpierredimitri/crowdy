@@ -9,7 +9,7 @@ import ZoomControls from '../components/ZoomControls';
 import Toast from '../components/Toast';
 import UserProfileModal from '../components/UserProfileModal';
 import { INITIAL_VENUES } from '../data/venues';
-import { checkAnomaly, getDistance, classifyScore } from '../utils/helpers';
+import { checkAnomaly, getDistance, classifyScore, validateReport, projectVenuesToGrid, extractAreaDetails } from '../utils/helpers';
 
 export default function SimpleCrowdSense() {
   // --- Simulation States ---
@@ -19,7 +19,7 @@ export default function SimpleCrowdSense() {
 
   // --- Backend Integration States ---
   const [isLiveBackend, setIsLiveBackend] = useState(false);
-  const BACKEND_URL = 'http://localhost:5000';
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
   // --- Core States ---
   const [venues, setVenues] = useState(INITIAL_VENUES);
@@ -88,17 +88,29 @@ export default function SimpleCrowdSense() {
   useEffect(() => {
     const checkBackendConnection = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/venues/nearby`);
-        if (res.ok) {
+        let res;
+        try {
+          res = await fetch(`${BACKEND_URL}/venues/nearby`);
+        } catch (fetchErr) {
+          if (BACKEND_URL.includes('localhost')) {
+            res = await fetch(`${BACKEND_URL.replace('localhost', '127.0.0.1')}/venues/nearby`);
+          } else {
+            throw fetchErr;
+          }
+        }
+        if (res && res.ok) {
           const data = await res.json();
           if (data && data.length > 0) {
-            // Coordinate mapping (from GPS coordinates back to local SVG 800x600 grid pixels)
-            const mapped = data.map(v => ({
+            // Adaptive geographic projection from GPS coordinates to SVG grid (works globally)
+            const projected = projectVenuesToGrid(data);
+            const mapped = projected.map(v => ({
               id: v.id,
               name: v.name,
               category: v.category,
-              x: Math.round((v.lon - (-74.0060)) / 0.000017828),
-              y: Math.round((40.7128 - v.lat) / 0.000013513),
+              x: v.x,
+              y: v.y,
+              lat: v.lat,
+              lon: v.lon,
               description: v.description,
               address: v.address,
               capacity: v.capacity,
@@ -109,7 +121,7 @@ export default function SimpleCrowdSense() {
               image: v.image,
               current_score: v.current_score,
               label: v.label,
-              source: v.source || 'Google Times',
+              source: v.source || 'Live Engine',
               distance: v.distance,
               activeReports: [] 
             }));
@@ -204,6 +216,7 @@ export default function SimpleCrowdSense() {
         const classification = classifyScore(v.current_score);
         return {
           ...v,
+          activeReports: v.activeReports || [],
           distance,
           label: classification.label,
           color: classification.color,
@@ -214,8 +227,10 @@ export default function SimpleCrowdSense() {
     }
 
     return venues.map(venue => {
-      const googleScore = venue.history[currentHour];
-      const reports = userReports.filter(r => r.venueId === venue.id);
+      const googleScore = venue.history && venue.history[currentHour] !== undefined 
+        ? venue.history[currentHour] 
+        : (typeof venue.current_score === 'number' ? venue.current_score : 35);
+      const reports = (userReports || []).filter(r => r.venueId === venue.id);
 
       const lambda = venue.lambda;
       const nowMs = simTime.getTime();
@@ -302,9 +317,26 @@ export default function SimpleCrowdSense() {
     }, {});
   }, [computedVenues, searchQuery, selectedCategory]);
 
+  // Dynamic sector & street labels extracted from loaded venues
+  const areaDetails = useMemo(() => extractAreaDetails(venues), [venues]);
+
   // --- Submit Report ---
   const submitLiveReport = async (reportedScore) => {
     if (!selectedVenue) return;
+
+    // Pre-flight frontend validation: enforce backend expectations
+    const validation = validateReport({
+      venueId: selectedVenue.id,
+      score: reportedScore,
+      userId: userId,
+      isLiveBackend
+    });
+
+    if (!validation.isValid) {
+      showToast(validation.error, 'error');
+      return;
+    }
+
     const isNearby = selectedVenue.distance <= 250;
 
     if (isLiveBackend) {
@@ -385,7 +417,7 @@ export default function SimpleCrowdSense() {
   };
 
   return (
-    <div className="relative w-screen h-screen bg-[#020617] text-slate-100 overflow-hidden font-sans antialiased">
+    <div className="relative w-screen h-screen bg-[#0a0a0a] text-neutral-100 overflow-hidden font-sans antialiased">
       
       {/* Toast Notification */}
       <Toast toast={toast} />
@@ -399,9 +431,11 @@ export default function SimpleCrowdSense() {
         venueFilters={venueFilters}
         selectedVenueId={selectedVenueId}
         setSelectedVenueId={setSelectedVenueId}
+        activeSector={areaDetails.sector}
+        streetLabels={areaDetails.streets}
       />
 
-      {/* FLOATING HEADER (SEARCH BOX + CATEGORIES) */}
+      {/* FLOATING HEADER (SEARCH BOX + CATEGORIES + AUTOCOMPLETE) */}
       <SearchHeader
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -409,6 +443,56 @@ export default function SimpleCrowdSense() {
         setSelectedCategory={setSelectedCategory}
         isLiveBackend={isLiveBackend}
         setIsProfileModalOpen={setIsProfileModalOpen}
+        venues={computedVenues}
+        onSelectVenue={async (id, venueObj) => {
+          setSelectedVenueId(id);
+          const found = computedVenues.find(v => v.id === id);
+          if (found) {
+            setUserLoc({ x: found.x, y: found.y });
+            return;
+          }
+
+          // If venue is outside current loaded sector, dynamically load nearby venues
+          if (venueObj) {
+            if (isLiveBackend && typeof venueObj.lat === 'number' && typeof venueObj.lon === 'number') {
+              try {
+                const res = await fetch(`${BACKEND_URL}/venues/nearby?lat=${venueObj.lat}&lon=${venueObj.lon}&radius=2000`);
+                if (res.ok) {
+                  const data = await res.json();
+                  const listToProject = Array.isArray(data) && data.length > 0 ? data : [venueObj];
+                  if (!listToProject.some(v => v.id === venueObj.id)) {
+                    listToProject.unshift(venueObj);
+                  }
+                  const projected = projectVenuesToGrid(listToProject).map(v => ({
+                    ...v,
+                    activeReports: v.activeReports || [],
+                    current_score: typeof v.current_score === 'number' ? v.current_score : 15
+                  }));
+                  setVenues(projected);
+                  const targeted = projected.find(v => v.id === id);
+                  if (targeted) {
+                    setUserLoc({ x: targeted.x, y: targeted.y });
+                  }
+                  return;
+                }
+              } catch (err) {
+                console.error('Failed to load surrounding venues for new sector:', err);
+              }
+            }
+
+            // Fallback: append venueObj and re-project
+            const combined = projectVenuesToGrid([venueObj, ...venues]).map(v => ({
+              ...v,
+              activeReports: v.activeReports || [],
+              current_score: typeof v.current_score === 'number' ? v.current_score : 15
+            }));
+            setVenues(combined);
+            const targeted = combined.find(v => v.id === id);
+            if (targeted) {
+              setUserLoc({ x: targeted.x, y: targeted.y });
+            }
+          }
+        }}
       />
 
       {/* FLOATING DETAIL CARD (RIGHT SIDE OVERLAY) */}

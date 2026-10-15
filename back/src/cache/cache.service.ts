@@ -11,22 +11,38 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {
     const url = this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
     try {
-      this.client = createClient({ url });
-      this.client.on('error', (err) => {
-        // Suppress nested logs, handled on connection check
+      this.client = createClient({ 
+        url,
+        socket: {
+          connectTimeout: 1500,
+          reconnectStrategy: false, // Prevent infinite reconnection hang when Redis is offline
+        }
+      });
+      this.client.on('error', () => {
+        // Suppress unhandled error events
       });
     } catch (e: any) {
       this.logger.warn('Failed to build Redis client. Caching will use in-memory store.');
+      this.client = null;
     }
   }
 
   async onModuleInit() {
     if (this.client) {
       try {
-        await this.client.connect();
+        const connectPromise = this.client.connect();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis connection timed out')), 1500)
+        );
+        await Promise.race([connectPromise, timeoutPromise]);
         this.logger.log('Connected to Redis server successfully.');
       } catch (err: any) {
-        this.logger.warn('Could not connect to Redis server. Falling back to in-memory caching.');
+        this.logger.warn('Could not connect to Redis server (using fast in-memory cache).');
+        try {
+          if (this.client.isOpen) {
+            await this.client.disconnect();
+          }
+        } catch (_) {}
         this.client = null;
       }
     }

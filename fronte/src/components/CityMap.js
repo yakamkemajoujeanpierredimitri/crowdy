@@ -11,21 +11,24 @@ import {
 import { classifyScore } from '../utils/helpers';
 
 export default function CityMap({
-  zoom,
-  userLoc,
+  zoom = 1,
+  userLoc = { x: 380, y: 280 },
   setUserLoc,
-  computedVenues,
-  venueFilters,
+  computedVenues = [],
+  venueFilters = {},
   selectedVenueId,
-  setSelectedVenueId
+  setSelectedVenueId,
+  activeSector = 'Central District',
+  streetLabels = []
 }) {
   const [isDraggingUser, setIsDraggingUser] = useState(false);
 
-  const selectedVenue = computedVenues.find(v => v.id === selectedVenueId) || null;
+  const safeVenues = Array.isArray(computedVenues) ? computedVenues : [];
+  const selectedVenue = safeVenues.find(v => v && v.id === selectedVenueId) || null;
 
   // Dragging user pin
   const handleMapMouseDown = (e) => {
-    if (e.target.id === 'user-pin-target') {
+    if (e.target && e.target.id === 'user-pin-target') {
       setIsDraggingUser(true);
     }
   };
@@ -76,7 +79,7 @@ export default function CityMap({
       >
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148, 163, 184, 0.04)" strokeWidth="1" />
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(250, 204, 21, 0.04)" strokeWidth="1" />
           </pattern>
           
           <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -90,14 +93,14 @@ export default function CityMap({
         </defs>
 
         {/* Grid Map Background */}
-        <rect width="800" height="600" fill="#020617" />
+        <rect width="800" height="600" fill="#0a0a0a" />
         <rect width="800" height="600" fill="url(#grid)" />
 
-        {/* Glowing water canal */}
+        {/* Water canal */}
         <path 
           d="M -50,100 C 150,110 200,80 320,160 C 440,240 400,320 520,380 C 640,440 700,410 850,450" 
           fill="none" 
-          stroke="#1e3a8a" 
+          stroke="#172554" 
           strokeWidth="48" 
           strokeLinecap="round" 
           opacity="0.1"
@@ -113,76 +116,104 @@ export default function CityMap({
         />
 
         {/* Streets */}
-        <line x1="150" y1="-20" x2="150" y2="620" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
-        <line x1="380" y1="-20" x2="380" y2="620" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
-        <line x1="600" y1="-20" x2="600" y2="620" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
-        <line x1="-20" y1="120" x2="820" y2="120" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
-        <line x1="-20" y1="280" x2="820" y2="280" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
-        <line x1="-20" y1="460" x2="820" y2="460" stroke="#0f172a" strokeWidth="20" opacity="0.5" />
+        <line x1="150" y1="-20" x2="150" y2="620" stroke="#141414" strokeWidth="20" opacity="0.6" />
+        <line x1="380" y1="-20" x2="380" y2="620" stroke="#141414" strokeWidth="20" opacity="0.6" />
+        <line x1="600" y1="-20" x2="600" y2="620" stroke="#141414" strokeWidth="20" opacity="0.6" />
+        <line x1="-20" y1="120" x2="820" y2="120" stroke="#141414" strokeWidth="20" opacity="0.6" />
+        <line x1="-20" y1="280" x2="820" y2="280" stroke="#141414" strokeWidth="20" opacity="0.6" />
+        <line x1="-20" y1="460" x2="820" y2="460" stroke="#141414" strokeWidth="20" opacity="0.6" />
 
         {/* Dash Lines for street visuals */}
-        <line x1="150" y1="-20" x2="150" y2="620" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
-        <line x1="380" y1="-20" x2="380" y2="620" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
-        <line x1="600" y1="-20" x2="600" y2="620" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
-        <line x1="-20" y1="120" x2="820" y2="120" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
-        <line x1="-20" y1="280" x2="820" y2="280" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
-        <line x1="-20" y1="460" x2="820" y2="460" stroke="rgba(16, 185, 129, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="150" y1="-20" x2="150" y2="620" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="380" y1="-20" x2="380" y2="620" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="600" y1="-20" x2="600" y2="620" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="-20" y1="120" x2="820" y2="120" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="-20" y1="280" x2="820" y2="280" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
+        <line x1="-20" y1="460" x2="820" y2="460" stroke="rgba(250, 204, 21, 0.08)" strokeWidth="1" strokeDasharray="4 8" />
 
-        {/* Street Name Texts */}
-        <text x="150" y="55" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 150 55)">BROADWAY ST</text>
-        <text x="380" y="320" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 380 320)">SPRUCE AVE</text>
-        <text x="600" y="540" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 600 540)">COMMERCIAL WAY</text>
-        <text x="75" y="115" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">CANAL ROAD</text>
-        <text x="500" y="275" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">PARKSIDE BLVD</text>
-        <text x="500" y="455" fill="rgba(148, 163, 184, 0.2)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">UNIVERSITY DR</text>
+        {/* Active Sector / City Badge */}
+        <g transform="translate(680, 25)">
+          <rect x="-85" y="-12" width="170" height="24" rx="6" fill="#141414" stroke="rgba(250, 204, 21, 0.35)" strokeWidth="1" />
+          <text x="0" y="3" fill="#facc15" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+            📍 {String(activeSector || 'Central District').slice(0, 24).toUpperCase()}
+          </text>
+        </g>
+
+        {/* Dynamic Street Name Texts */}
+        <text x="150" y="55" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 150 55)">
+          {String((streetLabels && streetLabels[0]) || 'BROADWAY ST').toUpperCase()}
+        </text>
+        <text x="380" y="320" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 380 320)">
+          {String((streetLabels && streetLabels[1]) || 'SPRUCE AVE').toUpperCase()}
+        </text>
+        <text x="600" y="540" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle" transform="rotate(90 600 540)">
+          {String((streetLabels && streetLabels[2]) || 'COMMERCIAL WAY').toUpperCase()}
+        </text>
+        <text x="75" y="115" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+          {String((streetLabels && streetLabels[3]) || 'CANAL ROAD').toUpperCase()}
+        </text>
+        <text x="500" y="275" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+          {String((streetLabels && streetLabels[4]) || 'PARKSIDE BLVD').toUpperCase()}
+        </text>
+        <text x="500" y="455" fill="rgba(250, 204, 21, 0.22)" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+          {String((streetLabels && streetLabels[5]) || 'UNIVERSITY DR').toUpperCase()}
+        </text>
 
         {/* Parks */}
-        <rect x="440" y="140" width="120" height="120" rx="10" fill="#065f46" opacity="0.06" stroke="#047857" strokeWidth="1" strokeDasharray="2 4" />
-        <path d="M 40,80 Q 90,80 120,130 T 40,220 Z" fill="#065f46" opacity="0.05" stroke="#047857" strokeWidth="1" strokeDasharray="2 4" />
+        <rect x="440" y="140" width="120" height="120" rx="10" fill="#141400" opacity="0.15" stroke="#3d3d00" strokeWidth="1" strokeDasharray="2 4" />
+        <path d="M 40,80 Q 90,80 120,130 T 40,220 Z" fill="#141400" opacity="0.15" stroke="#3d3d00" strokeWidth="1" strokeDasharray="2 4" />
 
         {/* Proximity Ring around user (250m GPS Verification Zone) */}
         <circle 
-          cx={userLoc.x} 
-          cy={userLoc.y} 
+          cx={userLoc?.x ?? 380} 
+          cy={userLoc?.y ?? 280} 
           r="167" 
           fill="none" 
-          stroke="rgba(16, 185, 129, 0.12)" 
-          strokeWidth="1.2"
-          strokeDasharray="4 8"
+          stroke="rgba(250, 204, 21, 0.15)" 
+          strokeWidth="1.2" 
+          strokeDasharray="4 8" 
         />
 
         {/* Line pointing to selected venue */}
-        {selectedVenue && (
+        {selectedVenue && 
+         typeof selectedVenue.x === 'number' && !isNaN(selectedVenue.x) &&
+         typeof selectedVenue.y === 'number' && !isNaN(selectedVenue.y) &&
+         userLoc && typeof userLoc.x === 'number' && (
           <line 
             x1={userLoc.x} 
             y1={userLoc.y} 
             x2={selectedVenue.x} 
             y2={selectedVenue.y} 
-            stroke="rgba(16, 185, 129, 0.25)" 
-            strokeWidth="1.2"
-            strokeDasharray="3 4"
-            filter="url(#glow)"
+            stroke="rgba(250, 204, 21, 0.3)" 
+            strokeWidth="1.2" 
+            strokeDasharray="3 4" 
+            filter="url(#glow)" 
           />
         )}
 
         {/* VENUE PINS */}
-        {computedVenues.map((venue) => {
+        {safeVenues.map((venue) => {
+          if (!venue || !venue.id) return null;
           const isSelected = venue.id === selectedVenueId;
-          const matchesFilter = venueFilters[venue.id];
-          const { color } = classifyScore(venue.current_score);
+          const matchesFilter = venueFilters ? venueFilters[venue.id] !== false : true;
+          const score = typeof venue.current_score === 'number' && !isNaN(venue.current_score) ? venue.current_score : 15;
+          const { color } = classifyScore(score);
+          const hasReports = Array.isArray(venue.activeReports) && venue.activeReports.length > 0;
+          const vx = typeof venue.x === 'number' && !isNaN(venue.x) ? venue.x : 400;
+          const vy = typeof venue.y === 'number' && !isNaN(venue.y) ? venue.y : 300;
           
           return (
             <g 
               key={venue.id} 
-              transform={`translate(${venue.x}, ${venue.y})`}
+              transform={`translate(${vx}, ${vy})`}
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedVenueId(venue.id);
+                if (setSelectedVenueId) setSelectedVenueId(venue.id);
               }}
               className="cursor-pointer transition-all duration-300"
               opacity={matchesFilter ? 1.0 : 0.15}
             >
-              {venue.activeReports.length > 0 && matchesFilter && (
+              {hasReports && matchesFilter && (
                 <circle 
                   r="24" 
                   fill="none" 
@@ -195,7 +226,7 @@ export default function CityMap({
 
               <circle 
                 r="15" 
-                fill="#020617" 
+                fill="#0a0a0a" 
                 stroke={color} 
                 strokeWidth={isSelected ? 3.0 : 1.6} 
                 style={{ filter: isSelected ? 'url(#glow-strong)' : 'url(#glow)' }}
@@ -212,17 +243,17 @@ export default function CityMap({
 
               {/* Value Tag */}
               <g transform="translate(10, -11)">
-                <rect x="0" y="0" width="18" height="12" rx="3" fill="#020617" stroke={color} strokeWidth="1" />
-                <text x="9" y="9" fill="#e2e8f0" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                  {venue.current_score}
+                <rect x="0" y="0" width="18" height="12" rx="3" fill="#0a0a0a" stroke={color} strokeWidth="1" />
+                <text x="9" y="9" fill="#ffffff" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+                  {score}
                 </text>
               </g>
 
               {isSelected && (
                 <g transform="translate(0, 30)">
-                  <rect x="-60" y="-11" width="120" height="22" rx="5" fill="#0f172a" stroke="rgba(148, 163, 184, 0.25)" strokeWidth="1" />
+                  <rect x="-60" y="-11" width="120" height="22" rx="5" fill="#141414" stroke="rgba(250, 204, 21, 0.25)" strokeWidth="1" />
                   <text x="0" y="3" fill="#ffffff" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                    {venue.name}
+                    {venue.name || 'Venue'}
                   </text>
                 </g>
               )}
@@ -230,26 +261,26 @@ export default function CityMap({
           );
         })}
 
-        {/* DRAGGABLE USER PIN */}
-        <g transform={`translate(${userLoc.x}, ${userLoc.y})`}>
+        {/* DRAGGABLE USER PIN (BRAND YELLOW & BLACK) */}
+        <g transform={`translate(${userLoc?.x ?? 380}, ${userLoc?.y ?? 280})`}>
           <circle 
             r="20" 
-            fill="rgba(16, 185, 129, 0.04)" 
-            stroke="rgba(16, 185, 129, 0.15)" 
+            fill="rgba(250, 204, 21, 0.05)" 
+            stroke="rgba(250, 204, 21, 0.2)" 
             strokeWidth="1"
             strokeDasharray="3 2"
           />
           <circle
             id="user-pin-target"
             r="12"
-            fill="#10b981"
+            fill="#FACC15"
             className="cursor-move hover:scale-110 active:scale-95 transition-transform"
-            style={{ filter: 'drop-shadow(0px 0px 6px rgba(16, 185, 129, 0.6))' }}
+            style={{ filter: 'drop-shadow(0px 0px 8px rgba(250, 204, 21, 0.75))' }}
           />
-          <circle r="3.5" fill="#ffffff" pointerEvents="none" />
+          <circle r="3.5" fill="#000000" pointerEvents="none" />
           <g transform="translate(0, -20)" pointerEvents="none">
-            <rect x="-30" y="-8" width="60" height="16" rx="4" fill="#10b981" />
-            <text x="0" y="3" fill="#022c22" fontSize="7" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
+            <rect x="-30" y="-8" width="60" height="16" rx="4" fill="#FACC15" />
+            <text x="0" y="3" fill="#000000" fontSize="7" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
               YOU (DRAG)
             </text>
           </g>

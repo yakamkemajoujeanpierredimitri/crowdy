@@ -9,6 +9,7 @@ import { ReportsModule } from './reports/reports.module';
 import { LiveModule } from './live/live.module';
 import { ClaimsModule } from './claims/claims.module';
 import { HighlightsModule } from './highlights/highlights.module';
+import { BestTimeModule } from './integration/besttime.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { HighlightsModule } from './highlights/highlights.module';
     LiveModule,
     ClaimsModule,
     HighlightsModule,
+    BestTimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],
