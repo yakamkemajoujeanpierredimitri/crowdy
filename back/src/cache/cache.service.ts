@@ -1,28 +1,39 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, RedisClientType } from 'redis';
 
 @Injectable()
 export class CacheService implements OnModuleInit, OnModuleDestroy {
   private client: RedisClientType | null = null;
-  private memoryCache = new Map<string, { value: string; expiresAt: number | null }>();
+  private memoryCache = new Map<
+    string,
+    { value: string; expiresAt: number | null }
+  >();
   private readonly logger = new Logger(CacheService.name);
 
   constructor(private configService: ConfigService) {
-    const url = this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
+    const url =
+      this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
     try {
-      this.client = createClient({ 
+      this.client = createClient({
         url,
         socket: {
           connectTimeout: 1500,
           reconnectStrategy: false, // Prevent infinite reconnection hang when Redis is offline
-        }
+        },
       });
       this.client.on('error', () => {
         // Suppress unhandled error events
       });
-    } catch (e: any) {
-      this.logger.warn('Failed to build Redis client. Caching will use in-memory store.');
+    } catch {
+      this.logger.warn(
+        'Failed to build Redis client. Caching will use in-memory store.',
+      );
       this.client = null;
     }
   }
@@ -32,17 +43,24 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
       try {
         const connectPromise = this.client.connect();
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Redis connection timed out')), 1500)
+          setTimeout(
+            () => reject(new Error('Redis connection timed out')),
+            1500,
+          ),
         );
         await Promise.race([connectPromise, timeoutPromise]);
         this.logger.log('Connected to Redis server successfully.');
-      } catch (err: any) {
-        this.logger.warn('Could not connect to Redis server (using fast in-memory cache).');
+      } catch {
+        this.logger.warn(
+          'Could not connect to Redis server (using fast in-memory cache).',
+        );
         try {
           if (this.client.isOpen) {
             await this.client.disconnect();
           }
-        } catch (_) {}
+        } catch {
+          // ignore
+        }
         this.client = null;
       }
     }
@@ -58,15 +76,15 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     if (this.client && this.client.isOpen) {
       try {
         return await this.client.get(key);
-      } catch (e) {
+      } catch {
         this.logger.warn('Redis read failed, falling back to memory.');
       }
     }
-    
+
     // Memory Cache Fallback
     const cached = this.memoryCache.get(key);
     if (!cached) return null;
-    
+
     if (cached.expiresAt && Date.now() > cached.expiresAt) {
       this.memoryCache.delete(key);
       return null;
@@ -83,7 +101,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
           await this.client.set(key, value);
         }
         return;
-      } catch (e) {
+      } catch {
         this.logger.warn('Redis write failed, falling back to memory.');
       }
     }
@@ -98,7 +116,7 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.client.del(key);
         return;
-      } catch (e) {
+      } catch {
         this.logger.warn('Redis delete failed, falling back to memory.');
       }
     }

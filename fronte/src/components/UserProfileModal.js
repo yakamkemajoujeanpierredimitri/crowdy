@@ -1,19 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X, User, Award, Activity, AlertCircle, Check } from 'lucide-react';
 import { validateUsername } from '../utils/helpers';
 
 export default function UserProfileModal({ isOpen, onClose, userId, setUserId }) {
-  const [inputValue, setInputValue] = useState('');
+  // The parent mounts this only while open, so the initial values are always fresh.
+  const [inputValue, setInputValue] = useState(userId || '');
   const [touched, setTouched] = useState(false);
-
-  useEffect(() => {
-    if (isOpen) {
-      setInputValue(userId || '');
-      setTouched(false);
-    }
-  }, [isOpen, userId]);
 
   const validation = useMemo(() => {
     return validateUsername(inputValue);

@@ -13,9 +13,17 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { getCategoryLabel, reportOptions } from '../utils/helpers';
+import { BACKEND_URL, ON_SITE_RADIUS_M } from '../utils/config';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
 
+const MOCK_HIGHLIGHTS = [
+  { id: 'mock-1', media_url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=300&q=80' },
+  { id: 'mock-2', media_url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80' },
+  { id: 'mock-3', media_url: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=300&q=80' }
+];
+
+// The parent renders this with key={venueId}, so all state below starts fresh for each venue.
 export default function VenueDetailCard({
   selectedVenue,
   setSelectedVenueId,
@@ -27,50 +35,39 @@ export default function VenueDetailCard({
   showToast
 }) {
   const { isPremiumUser, isBusinessPlus } = useAuth();
-  const [highlights, setHighlights] = useState([]);
-  const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const canSeeAllHighlights = isPremiumUser || isBusinessPlus;
+  const [remoteHighlights, setRemoteHighlights] = useState(null); // null = not loaded yet
   const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(null);
+  const venueId = selectedVenue?.id;
 
   useEffect(() => {
-    if (!selectedVenue) return;
-    
-    if (!isLiveBackend) {
-      setHighlights([
-        { id: 'mock-1', media_url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=300&q=80' },
-        { id: 'mock-2', media_url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80' },
-        { id: 'mock-3', media_url: 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=300&q=80' }
-      ]);
-      return;
-    }
-    
+    if (!isLiveBackend || !venueId) return;
     let isMounted = true;
-    const fetchHighlights = async () => {
-      setHighlightsLoading(true);
-      try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-        const res = await fetch(`${backendUrl}/highlights/venue/${selectedVenue.id}`);
+    fetch(`${BACKEND_URL}/highlights/venue/${venueId}`)
+      .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch highlights');
-        const data = await res.json();
-        if (isMounted) {
-          setHighlights(data);
-        }
-      } catch (err) {
+        return res.json();
+      })
+      .then((data) => {
+        if (isMounted) setRemoteHighlights(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
         console.error(err);
-      } finally {
-        if (isMounted) setHighlightsLoading(false);
-      }
-    };
-    
-    fetchHighlights();
-    
+        if (isMounted) setRemoteHighlights([]);
+      });
     return () => {
       isMounted = false;
     };
-  }, [selectedVenue?.id, isLiveBackend]);
+  }, [venueId, isLiveBackend]);
+
+  const highlights = isLiveBackend ? remoteHighlights || [] : MOCK_HIGHLIGHTS;
+  const highlightsLoading = isLiveBackend && remoteHighlights === null;
 
   if (!selectedVenue) return null;
 
-  const safeHighlights = Array.isArray(highlights) ? highlights : [];
+  const safeHighlights = highlights;
+  const hasScore = typeof selectedVenue.current_score === 'number';
+  const scoreValue = hasScore ? selectedVenue.current_score : 0;
   const safeHistory = Array.isArray(selectedVenue?.history) && selectedVenue.history.length === 24
     ? selectedVenue.history
     : Array(24).fill(typeof selectedVenue?.current_score === 'number' ? selectedVenue.current_score : 20);
@@ -101,7 +98,7 @@ export default function VenueDetailCard({
         <div className="mb-4 space-y-1.5">
           <div className="flex justify-between items-center text-[8px] font-mono text-neutral-400 mb-2">
             <span>VENUE HIGHLIGHTS</span>
-            {!isPremiumUser && (
+            {!canSeeAllHighlights && (
               <span className="text-[7.5px] uppercase font-bold text-yellow-400 flex items-center gap-1">
                 <Lock className="w-2.5 h-2.5" />
                 Premium to unlock all
@@ -114,7 +111,7 @@ export default function VenueDetailCard({
           ) : safeHighlights.length > 0 ? (
             <div className="grid grid-cols-3 gap-2">
               {safeHighlights.map((h, i) => {
-                const isLocked = !isPremiumUser && !isBusinessPlus && i >= 1; // Free users see only 1 highlight
+                const isLocked = !canSeeAllHighlights && i >= 1; // Free users see only 1 highlight
                 
                 return (
                   <div 
@@ -175,7 +172,7 @@ export default function VenueDetailCard({
                   rel="noopener noreferrer" 
                   className="text-yellow-400 hover:text-yellow-300 flex items-center gap-0.5 font-semibold"
                 >
-                  {selectedVenue.website.replace('https://', '')}
+                  {selectedVenue.website.replace(/^https?:\/\//, '')}
                   <ExternalLink className="w-2.5 h-2.5" />
                 </a>
               </p>
@@ -196,12 +193,12 @@ export default function VenueDetailCard({
                 stroke={selectedVenue.color} 
                 strokeWidth="4" 
                 strokeDasharray={2 * Math.PI * 20}
-                strokeDashoffset={2 * Math.PI * 20 * (1 - selectedVenue.current_score / 100)}
+                strokeDashoffset={2 * Math.PI * 20 * (1 - scoreValue / 100)}
                 className="transition-all duration-500 ease-out"
                 strokeLinecap="round"
               />
             </svg>
-            <span className="absolute text-[10px] font-bold font-mono text-white">{selectedVenue.current_score}%</span>
+            <span className="absolute text-[10px] font-bold font-mono text-white">{hasScore ? `${selectedVenue.current_score}%` : '–'}</span>
           </div>
           <div>
             <div className="flex items-center gap-1.5">
@@ -212,9 +209,9 @@ export default function VenueDetailCard({
             </div>
             <div className="text-[9px] text-neutral-300 font-mono mt-0.5 flex items-center gap-1">
               <Navigation className="w-3 h-3 text-neutral-500" />
-              <span>{selectedVenue.distance}m away</span>
+              <span>{typeof selectedVenue.distance === 'number' ? `${selectedVenue.distance}m away` : 'distance unknown'}</span>
               <span>•</span>
-              {selectedVenue.distance <= 250 ? (
+              {typeof selectedVenue.distance === 'number' && selectedVenue.distance <= ON_SITE_RADIUS_M ? (
                 <span className="text-yellow-400 font-bold">On-Site Verified</span>
               ) : (
                 <span className="text-amber-400 font-medium">Remote report warning</span>
@@ -311,20 +308,20 @@ export default function VenueDetailCard({
               <button 
                 onClick={() => setSelectedHighlightIndex(prev => {
                   const nextIndex = prev + 1;
-                  const isNextLocked = !isPremiumUser && !isBusinessPlus && nextIndex >= 1;
+                  const isNextLocked = !canSeeAllHighlights && nextIndex >= 1;
                   if (nextIndex < safeHighlights.length && !isNextLocked) {
                     return nextIndex;
                   }
                   return prev;
                 })}
-                disabled={selectedHighlightIndex === safeHighlights.length - 1 || (!isPremiumUser && !isBusinessPlus && selectedHighlightIndex + 1 >= 1)}
+                disabled={selectedHighlightIndex === safeHighlights.length - 1 || (!canSeeAllHighlights && selectedHighlightIndex + 1 >= 1)}
                 className="p-2 text-neutral-400 hover:text-white disabled:opacity-30 transition-colors"
               >
                 <ChevronRight className="w-8 h-8" />
               </button>
             </div>
             <div className="text-center mt-4 text-neutral-400 font-mono text-xs">
-              {selectedHighlightIndex + 1} / {!isPremiumUser && !isBusinessPlus ? 1 : safeHighlights.length}
+              {selectedHighlightIndex + 1} / {!canSeeAllHighlights ? 1 : safeHighlights.length}
             </div>
           </div>
         </div>

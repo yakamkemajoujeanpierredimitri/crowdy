@@ -4,7 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
+
   // Enable CORS for frontend API and WebSocket calls
   app.enableCors({
     origin: true,
@@ -12,14 +12,18 @@ async function bootstrap() {
   });
 
   // Enable validation pipes for DTOs
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+    }),
+  );
 
   const port = process.env.PORT ?? 5000;
   await app.listen(port, '0.0.0.0');
   console.log(`CrowdSense NestJS Backend running on: http://localhost:${port}`);
 }
-bootstrap();
-
+bootstrap().catch((err) => {
+  console.error('Failed to start CrowdSense backend:', err);
+  process.exit(1);
+});

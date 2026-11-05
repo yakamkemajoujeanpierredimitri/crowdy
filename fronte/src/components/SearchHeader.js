@@ -14,10 +14,10 @@ import {
   User,
   AlertCircle,
   CheckCircle2,
-  Loader2,
-  Navigation
+  Loader2
 } from 'lucide-react';
-import { getCategoryLabel, validateAddress } from '../utils/helpers';
+import { getCategoryLabel } from '../utils/helpers';
+import { BACKEND_URL } from '../utils/config';
 
 export default function SearchHeader({
   searchQuery,
@@ -27,12 +27,13 @@ export default function SearchHeader({
   isLiveBackend,
   setIsProfileModalOpen,
   venues = [],
+  userLoc,
   onSelectVenue
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
-  const [liveSuggestions, setLiveSuggestions] = useState([]);
-  const [isSearchingBackend, setIsSearchingBackend] = useState(false);
+  // Last backend answer, remembered with the query it belongs to
+  const [backendResult, setBackendResult] = useState({ query: '', items: null });
   const searchContainerRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -60,69 +61,63 @@ export default function SearchHeader({
     return { isValid: true };
   }, [searchQuery]);
 
-  // Live Backend Search with debounce & frontend input control
-  useEffect(() => {
-    const trimmed = searchQuery ? searchQuery.trim() : '';
-    
-    // Only query if valid and length >= 2
-    if (!trimmed || trimmed.length < 2 || (validation && !validation.isValid)) {
-      setLiveSuggestions([]);
-      setIsSearchingBackend(false);
-      return;
-    }
+  const trimmedQuery = searchQuery ? searchQuery.trim() : '';
+  const canQuery = trimmedQuery.length >= 2 && !(validation && !validation.isValid);
 
-    if (!isLiveBackend) {
-      // In sandbox mode, filter client-side venues
-      const q = trimmed.toLowerCase();
-      const localMatches = venues.filter((v) => {
-        const name = v.name ? v.name.toLowerCase() : '';
-        const address = v.address ? v.address.toLowerCase() : '';
-        const category = v.category ? v.category.toLowerCase() : '';
+  // Matches among the venues already loaded (sandbox mode, and fallback in live mode)
+  const localMatches = useMemo(() => {
+    if (!canQuery) return [];
+    const q = trimmedQuery.toLowerCase();
+    return (venues || [])
+      .filter((v) => {
+        const name = v && v.name ? v.name.toLowerCase() : '';
+        const address = v && v.address ? v.address.toLowerCase() : '';
+        const category = v && v.category ? v.category.toLowerCase() : '';
         return name.includes(q) || address.includes(q) || category.includes(q);
-      }).slice(0, 5);
-      setLiveSuggestions(localMatches);
-      return;
-    }
+      })
+      .slice(0, 5);
+  }, [canQuery, trimmedQuery, venues]);
 
-    // When Live Backend is connected, query backend search endpoint
+  const userLat = userLoc?.lat;
+  const userLon = userLoc?.lon;
+
+  // Live Backend Search (debounced). State is only set from the async callback.
+  useEffect(() => {
+    if (!isLiveBackend || !canQuery) return;
     let isCancelled = false;
-    setIsSearchingBackend(true);
 
     const debounceTimer = setTimeout(async () => {
+      let items = null; // null = backend failed -> use local matches
       try {
-        const sanitized = encodeURIComponent(trimmed);
-        const res = await fetch(`http://localhost:5000/venues/search?q=${sanitized}`);
+        const params = new URLSearchParams({ q: trimmedQuery });
+        if (Number.isFinite(userLat) && Number.isFinite(userLon)) {
+          params.set('lat', String(userLat));
+          params.set('lon', String(userLon));
+        }
+        const res = await fetch(`${BACKEND_URL}/venues/search?${params}`);
         if (res.ok) {
           const data = await res.json();
-          if (!isCancelled && Array.isArray(data)) {
-            setLiveSuggestions(data.slice(0, 5));
-          }
-        } else {
-          throw new Error('Fallback to local');
+          if (Array.isArray(data)) items = data.slice(0, 5);
         }
-      } catch (e) {
-        // Fallback to local venues if backend search fails
-        if (!isCancelled) {
-          const q = trimmed.toLowerCase();
-          const fallback = (venues || []).filter((v) => {
-            const name = v && v.name ? v.name.toLowerCase() : '';
-            const address = v && v.address ? v.address.toLowerCase() : '';
-            return name.includes(q) || address.includes(q);
-          }).slice(0, 5);
-          setLiveSuggestions(fallback);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsSearchingBackend(false);
-        }
+      } catch {
+        // network error -> local fallback
       }
-    }, 200);
+      if (!isCancelled) setBackendResult({ query: trimmedQuery, items });
+    }, 250);
 
     return () => {
       isCancelled = true;
       clearTimeout(debounceTimer);
     };
-  }, [searchQuery, isLiveBackend, venues, validation]);
+  }, [trimmedQuery, canQuery, isLiveBackend, userLat, userLon]);
+
+  const hasBackendAnswer = isLiveBackend && backendResult.query === trimmedQuery;
+  const isSearchingBackend = isLiveBackend && canQuery && !hasBackendAnswer;
+  const liveSuggestions = !canQuery
+    ? []
+    : hasBackendAnswer && Array.isArray(backendResult.items)
+      ? backendResult.items
+      : localMatches;
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -360,7 +355,7 @@ export default function SearchHeader({
                 }`}
               >
                 <Icon className="w-2.5 h-2.5" />
-                {getCategoryLabel(cat.id)}
+                {cat.label}
               </button>
             );
           })}

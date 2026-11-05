@@ -1,28 +1,32 @@
 'use client';
 
 import React from 'react';
+import { useMap } from 'react-map-gl/mapbox';
+import { DEFAULT_USER_LOCATION } from '../utils/config';
 
-export default function ZoomControls({
-  setZoom,
-  setUserLoc
-}) {
+// Talks to the <Map id="main"> in CityMap through react-map-gl's MapProvider.
+// Sits above the simulator widget (bottom-left) so the dev role switcher can't cover it.
+export default function ZoomControls({ onReset }) {
+  const { main } = useMap();
+  if (!main) return null;
+
+  const btn =
+    'w-7 h-7 rounded-lg hover:bg-neutral-800 hover:text-yellow-400 text-neutral-300 font-bold flex items-center justify-center text-xs border border-neutral-800 transition cursor-pointer';
+
   return (
-    <div className="absolute bottom-6 right-6 z-10 flex bg-black/85 border border-neutral-800 p-1 rounded-xl backdrop-blur-md gap-0.5 shadow-lg">
-      <button 
-        onClick={() => setZoom(z => Math.min(2.0, z + 0.15))} 
-        className="w-7 h-7 rounded-lg hover:bg-neutral-800 hover:text-yellow-400 text-neutral-300 font-bold flex items-center justify-center text-xs border border-neutral-800 transition cursor-pointer"
-      >
+    <div className="absolute bottom-48 left-6 z-10 flex bg-black/85 border border-neutral-800 p-1 rounded-xl backdrop-blur-md gap-0.5 shadow-lg">
+      <button onClick={() => main.zoomIn()} className={btn} aria-label="Zoom in">
         +
       </button>
-      <button 
-        onClick={() => setZoom(z => Math.max(0.6, z - 0.15))} 
-        className="w-7 h-7 rounded-lg hover:bg-neutral-800 hover:text-yellow-400 text-neutral-300 font-bold flex items-center justify-center text-xs border border-neutral-800 transition cursor-pointer"
-      >
+      <button onClick={() => main.zoomOut()} className={btn} aria-label="Zoom out">
         -
       </button>
-      <button 
-        onClick={() => { setZoom(1); setUserLoc({ x: 380, y: 280 }); }} 
-        className="w-7 h-7 rounded-lg hover:bg-neutral-800 hover:text-yellow-400 text-neutral-400 font-mono flex items-center justify-center text-[8px] border border-neutral-800 transition cursor-pointer"
+      <button
+        onClick={() => {
+          if (onReset) onReset();
+          main.flyTo({ center: [DEFAULT_USER_LOCATION.lon, DEFAULT_USER_LOCATION.lat], zoom: 15, duration: 800 });
+        }}
+        className={`${btn} text-neutral-400 font-mono text-[8px]`}
         title="Reset Map"
       >
         RST

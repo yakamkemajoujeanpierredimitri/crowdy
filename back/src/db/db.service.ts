@@ -1,6 +1,12 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool } from 'pg';
+import { Pool, QueryResultRow } from 'pg';
+import { SEED_VENUES } from './seed-data';
 
 @Injectable()
 export class DbService implements OnModuleInit, OnModuleDestroy {
@@ -8,9 +14,10 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DbService.name);
 
   constructor(private configService: ConfigService) {
-    const connectionString = this.configService.get<string>('DATABASE_URL') || 
+    const connectionString =
+      this.configService.get<string>('DATABASE_URL') ||
       'postgresql://postgres:postgres@localhost:5432/crowdsense';
-    
+
     this.pool = new Pool({
       connectionString,
     });
@@ -29,8 +36,8 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     await this.pool.end();
   }
 
-  async query(text: string, params?: any[]) {
-    return this.pool.query(text, params);
+  async query<T extends QueryResultRow = any>(text: string, params?: any[]) {
+    return this.pool.query<T>(text, params);
   }
 
   private async initializeDatabase() {
@@ -57,7 +64,9 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     `);
 
     // 3. Create Spatial Index
-    await this.pool.query('CREATE INDEX IF NOT EXISTS idx_venues_location ON venues USING GIST(location);');
+    await this.pool.query(
+      'CREATE INDEX IF NOT EXISTS idx_venues_location ON venues USING GIST(location);',
+    );
 
     // 4. Create Crowd Reports Table
     await this.pool.query(`
@@ -139,7 +148,9 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
         uploaded_at TIMESTAMPTZ DEFAULT now()
       );
     `);
-    await this.pool.query('CREATE INDEX IF NOT EXISTS idx_highlights_venue_time ON highlights (venue_id, uploaded_at DESC);');
+    await this.pool.query(
+      'CREATE INDEX IF NOT EXISTS idx_highlights_venue_time ON highlights (venue_id, uploaded_at DESC);',
+    );
 
     // 7. Create Historical Patterns Table
     await this.pool.query(`
@@ -153,12 +164,48 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     `);
 
     // Seed Venues & Curves if empty
-    const { rows } = await this.pool.query('SELECT COUNT(*) FROM venues;');
+    const { rows } = await this.pool.query<{ count: string }>(
+      'SELECT COUNT(*) FROM venues;',
+    );
     if (parseInt(rows[0].count, 10) === 0) {
       this.logger.log('Seeding initial mock venues and historical curves...');
-      
+      await this.seedVenues();
     }
   }
 
- 
+  private async seedVenues() {
+    for (const v of SEED_VENUES) {
+      const res = await this.pool.query<{ id: string }>(
+        `INSERT INTO venues (name, category, location, capacity, google_place_id, address, description, hours, website, image, lambda)
+         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (google_place_id) DO NOTHING
+         RETURNING id;`,
+        [
+          v.name,
+          v.category,
+          v.lon,
+          v.lat,
+          v.capacity,
+          v.google_place_id,
+          v.address,
+          v.description,
+          v.hours,
+          v.website,
+          v.image,
+          v.lambda,
+        ],
+      );
+      const venueId = res.rows[0]?.id;
+      if (!venueId) continue;
+      // Same 24h curve for every day of the week (0 = Mon … 6 = Sun)
+      await this.pool.query(
+        `INSERT INTO historical_patterns (venue_id, day_of_week, hour, avg_score)
+         SELECT $1, d, h, ($2::int[])[h + 1]
+         FROM generate_series(0, 6) AS d, generate_series(0, 23) AS h
+         ON CONFLICT DO NOTHING;`,
+        [venueId, v.history],
+      );
+    }
+    this.logger.log(`Seeded ${SEED_VENUES.length} venues.`);
+  }
 }

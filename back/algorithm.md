@@ -30,6 +30,15 @@ Recommended lambda values:
 
 A report older than ln(20)/lambda minutes contributes less than 5% to the final score.
 
+Implementation note (src/common/scoring.ts, mirrored in fronte/src/utils/helpers.js):
+  The decay and the reputation are applied to each report's WEIGHT, not to its value:
+    weight_i   = reputation_i * e^(-lambda * delta_t_i)
+    UserScore  = sum(score_i * weight_i) / sum(weight_i)
+    w2         = (0.65 if >= 3 reports in the last hour else 0.45) * min(1, sum(e^(-lambda * delta_t_i)))
+    CrowdScore = (1 - w2) * Baseline + w2 * UserScore
+  Multiplying the score itself (Score * decay * reputation) pulled every venue toward 0:
+  a fresh "Busy 70" from a new user (0.5x) counted as 35 and made the venue look quieter.
+
 ⚙ ALGORITHM: Z-Score Anomaly Filter
 For each incoming report:
   z = (report_score - mean_score) / std_dev

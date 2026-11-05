@@ -3,16 +3,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Building2, UploadCloud, CheckCircle, AlertCircle, Search, MapPin, X, Loader2 } from 'lucide-react';
-import { INITIAL_VENUES } from '@/data/venues';
-import { validateClaim, validateAddress } from '@/utils/helpers';
+import { validateClaim, errorMessage } from '@/utils/helpers';
+import { BACKEND_URL } from '@/utils/config';
 
 export default function BusinessClaimPage() {
   const { user } = useAuth();
   const [venueId, setVenueId] = useState('');
   const [selectedVenue, setSelectedVenue] = useState(null);
   const [lookupQuery, setLookupQuery] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
+  // Last search answer, remembered with the query it belongs to
+  const [searchResult, setSearchResult] = useState({ query: '', items: [], failed: false });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -34,75 +34,34 @@ export default function BusinessClaimPage() {
     };
   }, []);
 
-  // Fetch venue & street address suggestions on input change
+  // Search the backend (venue names, addresses, streets) as the user types
+  const trimmedLookup = lookupQuery.trim();
   useEffect(() => {
-    const trimmed = lookupQuery.trim();
-    if (trimmed.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
+    if (trimmedLookup.length < 2) return;
     let active = true;
-    const fetchVenues = async () => {
-      setIsSearching(true);
-      const q = trimmed.toLowerCase();
-
+    const timer = setTimeout(async () => {
+      let items = [];
+      let failed = false;
       try {
-        // 1. Query backend search endpoint
-        const res = await fetch(`http://localhost:5000/venues/search?q=${encodeURIComponent(trimmed)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active && Array.isArray(data) && data.length > 0) {
-            setSuggestions(data.slice(0, 5));
-            setIsSearching(false);
-            return;
-          }
-        }
-        throw new Error('Fallback to nearby / local');
+        const res = await fetch(`${BACKEND_URL}/venues/search?q=${encodeURIComponent(trimmedLookup)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        items = Array.isArray(data) ? data.slice(0, 5) : [];
       } catch {
-        // 2. Fall back to nearby endpoint
-        try {
-          const resNearby = await fetch('http://localhost:5000/venues/nearby');
-          if (resNearby.ok) {
-            const allVenues = await resNearby.json();
-            if (active && Array.isArray(allVenues)) {
-              const filtered = allVenues.filter((v) =>
-                (v.name && v.name.toLowerCase().includes(q)) ||
-                (v.address && v.address.toLowerCase().includes(q))
-              ).slice(0, 5);
-              setSuggestions(filtered);
-              setIsSearching(false);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-
-        // 3. Fall back to local verified venues dataset
-        if (active) {
-          const filtered = INITIAL_VENUES.filter((v) =>
-            (v.name && v.name.toLowerCase().includes(q)) ||
-            (v.address && v.address.toLowerCase().includes(q))
-          ).slice(0, 5);
-          setSuggestions(filtered);
-        }
-      } finally {
-        if (active) {
-          setIsSearching(false);
-        }
+        failed = true;
       }
-    };
-
-    const timer = setTimeout(() => {
-      fetchVenues();
-    }, 200);
-
+      if (active) setSearchResult({ query: trimmedLookup, items, failed });
+    }, 250);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [lookupQuery]);
+  }, [trimmedLookup]);
+
+  const hasAnswer = searchResult.query === trimmedLookup;
+  const isSearching = trimmedLookup.length >= 2 && !hasAnswer;
+  const suggestions = trimmedLookup.length >= 2 && hasAnswer ? searchResult.items : [];
+  const searchFailed = hasAnswer && searchResult.failed;
 
   const handleSelectVenue = (venue) => {
     setSelectedVenue(venue);
@@ -116,7 +75,6 @@ export default function BusinessClaimPage() {
     setSelectedVenue(null);
     setVenueId('');
     setLookupQuery('');
-    setSuggestions([]);
     setIsDropdownOpen(false);
   };
 
@@ -125,7 +83,8 @@ export default function BusinessClaimPage() {
     return validateClaim({
       venueId,
       documents,
-      userId: user?.id
+      userId: user?.id,
+      isLiveBackend: true // claims always go to the backend, which needs UUIDs
     });
   }, [venueId, documents, user?.id]);
 
@@ -143,8 +102,7 @@ export default function BusinessClaimPage() {
     setErrorMessage('');
     
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-      const res = await fetch(`${backendUrl}/claims`, {
+      const res = await fetch(`${BACKEND_URL}/claims`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -156,15 +114,20 @@ export default function BusinessClaimPage() {
         }),
       });
 
-      const data = await res.json();
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        // non-JSON body
+      }
 
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to submit claim');
+        throw new Error(errorMessage(data, 'Failed to submit claim'));
       }
 
       setStatus('success');
     } catch (err) {
-      setErrorMessage(err.message || 'Submission failed');
+      setErrorMessage(err instanceof TypeError ? 'Could not reach the backend server.' : err.message || 'Submission failed');
       setStatus('error');
     }
   };
@@ -262,6 +225,11 @@ export default function BusinessClaimPage() {
                     <div className="px-4 py-3 text-xs text-neutral-400 flex items-center gap-2">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-yellow-400" />
                       Searching verified addresses...
+                    </div>
+                  ) : searchFailed ? (
+                    <div className="px-4 py-3 text-xs text-red-300 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                      <span>Backend not reachable — venue search needs the server running.</span>
                     </div>
                   ) : suggestions.length > 0 ? (
                     suggestions.map((venue) => (

@@ -1,10 +1,52 @@
+const NO_DATA = { label: 'No data', color: '#737373', bg: 'rgba(115, 115, 115, 0.1)', border: 'rgba(115, 115, 115, 0.3)' };
+
 export function classifyScore(score) {
-  const s = typeof score === 'number' && !isNaN(score) ? score : 0;
+  if (typeof score !== 'number' || !Number.isFinite(score)) return NO_DATA;
+  const s = score;
   if (s <= 20) return { label: 'Empty', color: '#10B981', bg: 'rgba(16, 185, 129, 0.1)', border: 'rgba(16, 185, 129, 0.3)' };
   if (s <= 40) return { label: 'Quiet', color: '#34D399', bg: 'rgba(52, 211, 153, 0.1)', border: 'rgba(52, 211, 153, 0.3)' };
   if (s <= 60) return { label: 'Moderate', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)' };
   if (s <= 80) return { label: 'Busy', color: '#EF6C00', bg: 'rgba(239, 108, 0, 0.1)', border: 'rgba(239, 108, 0, 0.3)' };
   return { label: 'Packed', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.1)', border: 'rgba(239, 68, 68, 0.3)' };
+}
+
+/**
+ * Crowd score — same formula as the backend (back/src/common/scoring.ts).
+ * Each report's weight = reputation × e^(−λ·Δt); the user score is the weighted
+ * AVERAGE of what people reported, so decay/reputation never change the value itself.
+ * The user share (0.45, or 0.65 with 3+ reports in the last hour) shrinks as reports age.
+ * @param {number} baseline
+ * @param {{score:number, createdAt:Date, reputation?:number}[]} reports
+ * @param {number} lambda
+ * @param {Date} now
+ */
+export function computeCrowdScore(baseline, reports, lambda, now = new Date()) {
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+  const base = clamp(Number.isFinite(baseline) ? baseline : 50, 0, 100);
+  let weightedSum = 0;
+  let weightTotal = 0;
+  let freshness = 0;
+  let lastHour = 0;
+  let used = 0;
+
+  for (const r of reports) {
+    const deltaMinutes = (now.getTime() - r.createdAt.getTime()) / 60000;
+    if (deltaMinutes < 0 || deltaMinutes > 240) continue;
+    const decay = Math.exp(-lambda * deltaMinutes);
+    const weight = decay * clamp(r.reputation ?? 0.5, 0.1, 2.0);
+    weightedSum += r.score * weight;
+    weightTotal += weight;
+    freshness += decay;
+    used++;
+    if (deltaMinutes <= 60) lastHour++;
+  }
+
+  if (used === 0 || weightTotal === 0) return { score: Math.round(base), usedReports: 0 };
+
+  const userScore = weightedSum / weightTotal;
+  const userShare = (lastHour >= 3 ? 0.65 : 0.45) * Math.min(1, freshness);
+  const raw = (1 - userShare) * base + userShare * userScore;
+  return { score: Math.round(clamp(raw, 0, 100)), usedReports: used };
 }
 
 // Z-Score Anomaly check
@@ -29,22 +71,23 @@ export function checkAnomaly(newScore, recentReports) {
   return { result: 'accept', zScore: Number(z.toFixed(2)) };
 }
 
-export function getDistance(vX, vY, uX, uY) {
-  const x1 = typeof vX === 'number' && !isNaN(vX) ? vX : 0;
-  const y1 = typeof vY === 'number' && !isNaN(vY) ? vY : 0;
-  const x2 = typeof uX === 'number' && !isNaN(uX) ? uX : 0;
-  const y2 = typeof uY === 'number' && !isNaN(uY) ? uY : 0;
-  const dx = x1 - x2;
-  const dy = y1 - y2;
-  return Math.round(Math.sqrt(dx * dx + dy * dy) * 1.5);
+/** Distance in metres between two GPS points (haversine). */
+export function getDistanceMeters(lat1, lon1, lat2, lon2) {
+  if (![lat1, lon1, lat2, lon2].every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
 }
 
 export function getCategoryLabel(cat) {
   switch (cat) {
-    case 'cafe': return 'Caffe';
-    case 'restaurant': return 'Ristorante';
+    case 'cafe': return 'Cafe';
+    case 'restaurant': return 'Restaurant';
     case 'nightclub': return 'Nightclub';
-    default: return cat.charAt(0).toUpperCase() + cat.slice(1);
+    default: return cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Venue';
   }
 }
 
@@ -149,57 +192,6 @@ export function validateUsername(username) {
 }
 
 /**
- * Projects real GPS coordinates (lat, lon) anywhere in the world to the 800x600 SVG grid.
- * Dynamically computes bounding box and scales smoothly regardless of city or sector.
- */
-export function projectVenuesToGrid(venues) {
-  if (!venues || !Array.isArray(venues) || venues.length === 0) return [];
-
-  const hasGps = venues.some(v => typeof v.lat === 'number' && typeof v.lon === 'number');
-  if (!hasGps) return venues;
-
-  const validGpsVenues = venues.filter(v => typeof v.lat === 'number' && typeof v.lon === 'number');
-  if (validGpsVenues.length === 0) return venues;
-
-  const lats = validGpsVenues.map(v => v.lat);
-  const lons = validGpsVenues.map(v => v.lon);
-
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-
-  const centerLat = (minLat + maxLat) / 2;
-  const centerLon = (minLon + maxLon) / 2;
-
-  // Adaptive scale to fit comfortably on 800x600 screen
-  const spanLat = Math.max(0.0035, (maxLat - minLat) * 1.3);
-  const spanLon = Math.max(0.0055, (maxLon - minLon) * 1.3);
-
-  const scaleX = 640 / spanLon;
-  const scaleY = 440 / spanLat;
-
-  return venues.map(v => {
-    if (typeof v.lat !== 'number' || typeof v.lon !== 'number') {
-      return v;
-    }
-    const rawX = 400 + Math.round((v.lon - centerLon) * scaleX);
-    const rawY = 300 - Math.round((v.lat - centerLat) * scaleY);
-
-    // Keep clamped inside viewport margins
-    const clampedX = Math.min(740, Math.max(60, rawX));
-    const clampedY = Math.min(540, Math.max(60, rawY));
-
-    return {
-      ...v,
-      x: clampedX,
-      y: clampedY,
-      activeReports: v.activeReports || []
-    };
-  });
-}
-
-/**
  * Extracts distinct street names and common city/sector name from venue addresses
  */
 export function extractAreaDetails(venues) {
@@ -232,4 +224,10 @@ export function extractAreaDetails(venues) {
   };
 }
 
-
+/** Nest validation errors return `message` as an array — turn any error body into one sentence. */
+export function errorMessage(body, fallback = 'Request failed.') {
+  const m = body && body.message;
+  if (Array.isArray(m)) return m.join('. ');
+  if (typeof m === 'string' && m) return m;
+  return fallback;
+}

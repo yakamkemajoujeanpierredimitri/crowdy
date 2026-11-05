@@ -185,7 +185,7 @@ export default function BusinessDashboard() {
                 Most Popular
               </div>
               <h4 className="text-lg font-bold text-white">Weekend Boost</h4>
-              <p className="text-neutral-400 text-xs mt-1 mb-4">Appear as a 'Sponsored' pin on the map from Friday 5PM to Sunday 11PM.</p>
+              <p className="text-neutral-400 text-xs mt-1 mb-4">Appear as a &lsquo;Sponsored&rsquo; pin on the map from Friday 5PM to Sunday 11PM.</p>
               <div className="flex items-end gap-2 mb-6">
                 <span className="text-3xl font-bold text-yellow-400 font-mono">$49</span>
                 <span className="text-neutral-400 text-xs pb-1">/ weekend</span>

@@ -4,11 +4,20 @@ import { createContext, useContext, useState } from 'react';
 
 const AuthContext = createContext();
 
+// Fixed UUIDs per test role (backend needs a UUID user id, e.g. for POST /claims).
+// Switching back to a role gives you the same user, so its claims are still there.
+const MOCK_USER_IDS = {
+  'user:free': '00000000-0000-4000-8000-000000000001',
+  'user:premium': '00000000-0000-4000-8000-000000000002',
+  'business:free': '00000000-0000-4000-8000-000000000003',
+  'business:business_plus': '00000000-0000-4000-8000-000000000004',
+};
+
 export function AuthProvider({ children }) {
   // Mocking the initial state. In a real app, this would fetch from an API or read a JWT.
   // We'll default to a 'free' tier 'user' to test the gating mechanisms.
   const [user, setUser] = useState({
-    id: 'mock-user-123',
+    id: MOCK_USER_IDS['user:free'],
     name: 'Anonymous Visitor',
     role: 'user', // 'user', 'business', 'admin'
     tier: 'free', // 'free', 'premium', 'business_plus'
@@ -21,7 +30,7 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setTimeout(() => {
       setUser({
-        id: `mock-${role}-${Date.now()}`,
+        id: MOCK_USER_IDS[`${role}:${tier}`] || MOCK_USER_IDS['user:free'],
         name: `Test ${role.charAt(0).toUpperCase() + role.slice(1)}`,
         role: role,
         tier: tier,
@@ -32,7 +41,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     setUser({
-      id: 'mock-anon',
+      id: MOCK_USER_IDS['user:free'],
       name: 'Anonymous',
       role: 'user',
       tier: 'free'
