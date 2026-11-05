@@ -1,0 +1,119 @@
+# Builds the backend (./back) into a Docker image, pushes it to GitHub Container Registry
+# and tells Render to deploy that exact image.
+#
+#   pull request -> test + build image (not pushed)
+#   push to main -> test + build + push ghcr.io/<owner>/crowdy-backend:{latest,sha-xxxxxxx} + deploy on Render
+#
+# One-time setup: see the "Deploy on Render" steps in the README / chat.
+# Secret needed for the deploy step: RENDER_DEPLOY_HOOK_URL (Repo -> Settings -> Secrets and variables -> Actions)
+
+name: Backend Docker image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'back/**'
+      - '.github/workflows/backend-docker.yml'
+  pull_request:
+    paths:
+      - 'back/**'
+      - '.github/workflows/backend-docker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: backend-docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: crowdy-backend
+
+jobs:
+  test:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: back
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: back/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+
+  image:
+    name: Docker image
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ghcr.io names must be lowercase
+      - id: vars
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: back
+          platforms: linux/amd64 # Render runs linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Render
+    needs: image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook with the new image digest
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          IMAGE: ${{ needs.image.outputs.image }}@${{ needs.image.outputs.digest }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL secret is not set - image was pushed, Render deploy skipped."
+            exit 0
+          fi
+          # Deploy exactly the image built in this run (pinned by digest, URL-encoded)
+          ENCODED=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$IMAGE")
+          curl --fail --silent --show-error "${HOOK}&imgURL=${ENCODED}"
+          echo "Render deploy triggered for $IMAGE"
